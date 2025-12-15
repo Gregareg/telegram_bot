@@ -64,9 +64,20 @@ def ensure_employee(telegram_id: int, employee_code: str) -> tuple:
         return None, None
 
 def get_main_menu_keyboard():
-    """Создает клавиатуру главного меню."""
+    """Создает клавиатуру главного меню (4 кнопки)."""
     keyboard = [
         [InlineKeyboardButton("🌅 Начать смену", callback_data="menu_start_shift")],
+        [InlineKeyboardButton("🌇 Завершить смену", callback_data="menu_finish_shift")],
+        [
+            InlineKeyboardButton("🆘 Мне сейчас тяжело", callback_data="menu_hard_time"),
+            InlineKeyboardButton("❓ Помощь / Ситуации", callback_data="menu_help")
+        ]
+    ]
+    return InlineKeyboardMarkup(keyboard)
+
+def get_shift_menu_keyboard():
+    """Создает клавиатуру меню во время смены (без 'Начать смену')."""
+    keyboard = [
         [InlineKeyboardButton("🌇 Завершить смену", callback_data="menu_finish_shift")],
         [
             InlineKeyboardButton("🆘 Мне сейчас тяжело", callback_data="menu_hard_time"),
@@ -160,7 +171,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             await query.edit_message_text(
                 f"Я с тобой. Вот практика, которая может помочь прямо сейчас:\n\n{random_help}\n\n"
                 f"Попробуй это, а потом возвращайся к работе. Ты справишься. 💪",
-                reply_markup=get_main_menu_keyboard()
+                reply_markup=get_shift_menu_keyboard()  # Сокращенное меню
             )
             return
             
@@ -168,7 +179,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             # Кнопка "Помощь / Ситуации"
             await query.edit_message_text(
                 "Раздел помощи и карточек ситуаций в разработке...",
-                reply_markup=get_main_menu_keyboard()
+                reply_markup=get_shift_menu_keyboard()  # Сокращенное меню
             )
             return
     
@@ -267,11 +278,14 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             final_message = (
                 f"Настроение '{mood}' сохранено. Хорошей смены! 🍰\n\n"
                 f"💡 **Микро-практика на сегодня:**\n"
-                f"{random_practice}\n\n"
-                f"В конце смены нажми 'Завершить смену' в меню (/menu)"
+                f"{random_practice}"
             )
-            # Отправляем ТОЛЬКО сообщение с практикой, НЕ показываем меню
-            await query.edit_message_text(text=final_message)
+            
+            # Отправляем сообщение с практикой и СОКРАЩЕННЫМ меню
+            await query.edit_message_text(
+                text=final_message,
+                reply_markup=get_shift_menu_keyboard()  # <-- Ключевое изменение!
+            )
             
         except Exception as e:
             logger.error(f"Ошибка при сохранении утреннего чека: {e}")
@@ -329,7 +343,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             }
             supabase.table("checkins").insert(checkin_data).execute()
             
-            # Показываем меню после завершения смены
+            # Показываем ПОЛНОЕ меню после завершения смены
             await show_main_menu(
                 update,
                 context,
