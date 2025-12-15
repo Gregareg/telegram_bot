@@ -138,6 +138,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             [InlineKeyboardButton("Моё состояние", callback_data="diff_self")],
             [InlineKeyboardButton("Всё нормально", callback_data="diff_ok")]
         ]
+        
         await query.edit_message_text(
             text="Выбери главную сложность сегодня:",
             reply_markup=InlineKeyboardMarkup(difficulty_keyboard)
@@ -161,7 +162,8 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         )
         user_data['waiting_for'] = 'evening_gratitude'
         
-        elif user_data.get('waiting_for') == 'morning_mood' and callback_data.startswith('mood_'):
+    # ========== БЛОК УТРЕННЕГО ЧЕК-ИНА С МИКРО-ПРАКТИКОЙ ==========
+    elif user_data.get('waiting_for') == 'morning_mood' and callback_data.startswith('mood_'):
         mood_map = {
             'mood_bad': '😫',
             'mood_neutral': '😐', 
@@ -284,6 +286,7 @@ def main() -> None:
 
 if __name__ == '__main__':
     main()
+
 
 
 
