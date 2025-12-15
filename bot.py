@@ -2,6 +2,7 @@ import os
 import logging
 import warnings
 import sys
+import random
 
 # ФИКС для Python 3.13+: подменяем отсутствующий модуль imghdr
 if sys.version_info >= (3, 13):
@@ -62,36 +63,45 @@ def ensure_employee(telegram_id: int, employee_code: str) -> tuple:
         logger.error(f"Ошибка при работе с сотрудником: {e}")
         return None, None
 
-# ========== КОМАНДА /START ==========
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    user = update.effective_user
-    await update.message.reply_text(
-        f"Привет, {user.first_name}! Я твой тихий помощник на смене.\n"
-        f"Для начала введи свой персональный код сотрудника:"
-    )
-    context.user_data['waiting_for'] = 'employee_code'
-
-# ========== КОМАНДА /FINISH ==========
-async def finish(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    telegram_id = update.effective_user.id
-    response = supabase.table("employees").select("*").eq("telegram_id", telegram_id).execute()
-    
-    if not response.data:
-        await update.message.reply_text("Сначала нужно зарегистрироваться через команду /start")
-        return
-    
+def get_main_menu_keyboard():
+    """Создает клавиатуру главного меню."""
     keyboard = [
-        [InlineKeyboardButton(str(i), callback_data=f"score_{i}") for i in range(1, 6)],
-        [InlineKeyboardButton(str(i), callback_data=f"score_{i}") for i in range(6, 11)]
+        [InlineKeyboardButton("🌅 Начать смену", callback_data="menu_start_shift")],
+        [InlineKeyboardButton("🌇 Завершить смену", callback_data="menu_finish_shift")],
+        [
+            InlineKeyboardButton("🆘 Мне сейчас тяжело", callback_data="menu_hard_time"),
+            InlineKeyboardButton("❓ Помощь / Ситуации", callback_data="menu_help")
+        ]
     ]
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    
-    await update.message.reply_text(
-        "Смена подошла к концу! Оцени её по шкале от 1 до 10:",
-        reply_markup=reply_markup
+    return InlineKeyboardMarkup(keyboard)
+
+async def show_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE, message_text="Чем могу помочь?"):
+    """Отправляет или обновляет сообщение с главным меню."""
+    keyboard = get_main_menu_keyboard()
+    # Если update - это сообщение (команда /menu)
+    if update.message:
+        await update.message.reply_text(message_text, reply_markup=keyboard)
+    # Если update - это callback_query (нажатие кнопки)
+    elif update.callback_query:
+        query = update.callback_query
+        await query.answer()
+        await query.edit_message_text(message_text, reply_markup=keyboard)
+
+# ========== КОМАНДА /START И /MENU ==========
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Обработчик команды /start - показывает главное меню."""
+    user = update.effective_user
+    welcome_text = (
+        f"Привет, {user.first_name}! Я твой тихий помощник на смене.\n"
+        f"Выбери действие:"
     )
-    context.user_data['waiting_for'] = 'evening_score'
-    context.user_data['employee_id'] = response.data[0]["id"]
+    await show_main_menu(update, context, welcome_text)
+    # Очищаем состояние пользователя, если оно было
+    context.user_data.clear()
+
+async def menu_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Обработчик команды /menu."""
+    await show_main_menu(update, context, "Главное меню:")
 
 # ========== ОБРАБОТЧИК КНОПОК ==========
 async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -100,6 +110,84 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     user_data = context.user_data
     callback_data = query.data
     
+    # --- ОБРАБОТКА ГЛАВНОГО МЕНЮ ---
+    if callback_data.startswith('menu_'):
+        if callback_data == 'menu_start_shift':
+            # Проверяем, зарегистрирован ли уже сотрудник
+            telegram_id = update.effective_user.id
+            response = supabase.table("employees").select("*").eq("telegram_id", telegram_id).execute()
+            
+            if response.data:
+                # Сотрудник уже зарегистрирован, сразу спрашиваем настроение
+                user_data['employee_id'] = response.data[0]["id"]
+                user_data['employee_code'] = response.data[0]["employee_code"]
+                
+                mood_keyboard = [
+                    [
+                        InlineKeyboardButton("😫 Тяжело", callback_data="mood_bad"),
+                        InlineKeyboardButton("😐 Нейтрально", callback_data="mood_neutral")
+                    ],
+                    [
+                        InlineKeyboardButton("🙂 Хорошо", callback_data="mood_good"),
+                        InlineKeyboardButton("🤩 Отлично", callback_data="mood_excellent")
+                    ]
+                ]
+                await query.edit_message_text(
+                    "Какое у тебя настроение перед сменой?",
+                    reply_markup=InlineKeyboardMarkup(mood_keyboard)
+                )
+                user_data['waiting_for'] = 'morning_mood'
+            else:
+                # Сотрудник не зарегистрирован, запрашиваем код
+                await query.edit_message_text(
+                    "Для начала введи свой персональный код сотрудника:"
+                )
+                user_data['waiting_for'] = 'employee_code'
+            return
+            
+        elif callback_data == 'menu_finish_shift':
+            # Логика завершения смены
+            telegram_id = update.effective_user.id
+            response = supabase.table("employees").select("*").eq("telegram_id", telegram_id).execute()
+            
+            if not response.data:
+                await query.edit_message_text(
+                    "Сначала нужно начать смену!",
+                    reply_markup=get_main_menu_keyboard()
+                )
+                return
+            
+            # Показываем оценку смены
+            keyboard = [
+                [InlineKeyboardButton(str(i), callback_data=f"score_{i}") for i in range(1, 6)],
+                [InlineKeyboardButton(str(i), callback_data=f"score_{i}") for i in range(6, 11)]
+            ]
+            await query.edit_message_text(
+                "Смена подошла к концу! Оцени её по шкале от 1 до 10:",
+                reply_markup=InlineKeyboardMarkup(keyboard)
+            )
+            user_data['waiting_for'] = 'evening_score'
+            user_data['employee_id'] = response.data[0]["id"]
+            return
+            
+        elif callback_data == 'menu_hard_time':
+            # Кнопка "Мне сейчас тяжело"
+            await query.edit_message_text(
+                "Я с тобой. Сейчас пришлю что-то, что может помочь...",
+                reply_markup=get_main_menu_keyboard()
+            )
+            # TODO: Здесь можно добавить логику помощи
+            return
+            
+        elif callback_data == 'menu_help':
+            # Кнопка "Помощь / Ситуации"
+            await query.edit_message_text(
+                "Раздел помощи и карточек ситуаций в разработке...",
+                reply_markup=get_main_menu_keyboard()
+            )
+            return
+    
+    # --- СТАРАЯ ЛОГИКА (остается без изменений) ---
     if user_data.get('waiting_for') == 'evening_score' and callback_data.startswith('score_'):
         score = int(callback_data.split('_')[1])
         user_data['evening_score'] = score
@@ -180,8 +268,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             }
             supabase.table("checkins").insert(checkin_data).execute()
             
-            # --- НАЧАЛО: ДОБАВЛЕНИЕ МИКРО-ПРАКТИКИ ---
-            # Список микро-практик (позже можно вынести в БД)
+            # Список микро-практик
             morning_practices = [
                 "Сегодняшний фокус: будь как солнце для гостя — согрей вниманием.",
                 "Микро-практика: сделай три глубоких вдоха перед началом смены. Ты на месте.",
@@ -189,7 +276,6 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
                 "Практика: поблагодари коллегу за одну мелочь в течение часа.",
                 "Сегодня: обращай внимание не на проблему, а на человека перед тобой."
             ]
-            import random
             random_practice = random.choice(morning_practices)
             
             # Формируем финальное сообщение с практикой
@@ -197,11 +283,11 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
                 f"Настроение '{mood}' сохранено. Хорошей смены! 🍰\n\n"
                 f"💡 **Микро-практика на сегодня:**\n"
                 f"{random_practice}\n\n"
-                f"В конце смены напиши /finish"
+                f"В конце смены нажми 'Завершить смену' в меню"
             )
-            # Отправляем сообщение
+            # Отправляем сообщение и показываем меню
             await query.edit_message_text(text=final_message)
-            # --- КОНЕЦ: ДОБАВЛЕНИЕ МИКРО-ПРАКТИКИ ---
+            await show_main_menu(update, context, "Главное меню:")
             
         except Exception as e:
             logger.error(f"Ошибка при сохранении утреннего чека: {e}")
@@ -225,21 +311,12 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             user_data['employee_id'] = employee_id
             user_data['employee_code'] = code
             
-            mood_keyboard = [
-                [
-                    InlineKeyboardButton("😫 Тяжело", callback_data="mood_bad"),
-                    InlineKeyboardButton("😐 Нейтрально", callback_data="mood_neutral")
-                ],
-                [
-                    InlineKeyboardButton("🙂 Хорошо", callback_data="mood_good"),
-                    InlineKeyboardButton("🤩 Отлично", callback_data="mood_excellent")
-                ]
-            ]
-            await update.message.reply_text(
-                f"Код '{code}' принят! Какое у тебя настроение перед сменой?",
-                reply_markup=InlineKeyboardMarkup(mood_keyboard)
+            # Показываем меню с подсказкой начать смену
+            await show_main_menu(
+                update, 
+                context, 
+                f"Код '{code}' принят! Теперь можешь начать смену кнопкой ниже:"
             )
-            user_data['waiting_for'] = 'morning_mood'
         else:
             await update.message.reply_text(
                 "Не удалось обработать код. Попробуй ещё раз или обратись к управляющему."
@@ -257,14 +334,18 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
                 "gratitude_text": gratitude_text
             }
             supabase.table("checkins").insert(checkin_data).execute()
-            await update.message.reply_text(
+            
+            # Показываем меню после завершения смены
+            await show_main_menu(
+                update,
+                context,
                 "Спасибо за честные ответы! Отдыхай и восстанавливай силы. 🍰\n"
-                "Завтра жду снова на /start"
+                "Завтра жду снова!"
             )
         except Exception as e:
             logger.error(f"Ошибка при сохранении вечернего чека: {e}")
             await update.message.reply_text(
-                "Произошла ошибка при сохранении. Попробуй ещё раз /finish"
+                "Произошла ошибка при сохранении. Попробуй ещё раз через меню"
             )
         user_data.clear()
 
@@ -276,7 +357,7 @@ def main() -> None:
     
     # Регистрируем обработчики
     application.add_handler(CommandHandler("start", start))
-    application.add_handler(CommandHandler("finish", finish))
+    application.add_handler(CommandHandler("menu", menu_command))
     application.add_handler(CallbackQueryHandler(button_callback))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     
@@ -286,7 +367,3 @@ def main() -> None:
 
 if __name__ == '__main__':
     main()
-
-
-
-
