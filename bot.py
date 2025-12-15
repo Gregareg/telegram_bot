@@ -113,36 +113,11 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     # --- ОБРАБОТКА ГЛАВНОГО МЕНЮ ---
     if callback_data.startswith('menu_'):
         if callback_data == 'menu_start_shift':
-            # Проверяем, зарегистрирован ли уже сотрудник
-            telegram_id = update.effective_user.id
-            response = supabase.table("employees").select("*").eq("telegram_id", telegram_id).execute()
-            
-            if response.data:
-                # Сотрудник уже зарегистрирован, сразу спрашиваем настроение
-                user_data['employee_id'] = response.data[0]["id"]
-                user_data['employee_code'] = response.data[0]["employee_code"]
-                
-                mood_keyboard = [
-                    [
-                        InlineKeyboardButton("😫 Тяжело", callback_data="mood_bad"),
-                        InlineKeyboardButton("😐 Нейтрально", callback_data="mood_neutral")
-                    ],
-                    [
-                        InlineKeyboardButton("🙂 Хорошо", callback_data="mood_good"),
-                        InlineKeyboardButton("🤩 Отлично", callback_data="mood_excellent")
-                    ]
-                ]
-                await query.edit_message_text(
-                    "Какое у тебя настроение перед сменой?",
-                    reply_markup=InlineKeyboardMarkup(mood_keyboard)
-                )
-                user_data['waiting_for'] = 'morning_mood'
-            else:
-                # Сотрудник не зарегистрирован, запрашиваем код
-                await query.edit_message_text(
-                    "Для начала введи свой персональный код сотрудника:"
-                )
-                user_data['waiting_for'] = 'employee_code'
+            # ВСЕГДА запрашиваем код сотрудника
+            await query.edit_message_text(
+                "Для начала введи свой персональный код сотрудника:"
+            )
+            user_data['waiting_for'] = 'employee_code'
             return
             
         elif callback_data == 'menu_finish_shift':
@@ -171,12 +146,22 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             return
             
         elif callback_data == 'menu_hard_time':
-            # Кнопка "Мне сейчас тяжело"
+            # Кнопка "Мне сейчас тяжело" - с реальной помощью
+            hard_time_practices = [
+                "🔹 **Техника 5-4-3-2-1**: Назови 5 вещей, которые видишь, 4 которых касаешься, 3 слышишь, 2 чувствуешь по запаху, 1 на вкус. Помогает вернуться в настоящее.",
+                "🔹 **Микроперерыв**: Уйди на 2 минуты в тихое место. Просто постой и подыши. Не нужно ничего решать прямо сейчас.",
+                "🔹 **Напиши и выбрось**: Возьми бумажку, напиши всё, что давит, скомкай и выбрось. Символически отпускаешь напряжение.",
+                "🔹 **Стакан воды**: Выпей медленно стакан воды, концентрируясь на каждом глотке. Простое действие, которое перезагружает.",
+                "🔹 **Заземление**: Поставь обе ступни плотно на пол, почувствуй опору. Ты здесь, ты в безопасности."
+            ]
+            
+            random_help = random.choice(hard_time_practices)
+            
             await query.edit_message_text(
-                "Я с тобой. Сейчас пришлю что-то, что может помочь...",
+                f"Я с тобой. Вот практика, которая может помочь прямо сейчас:\n\n{random_help}\n\n"
+                f"Попробуй это, а потом возвращайся к работе. Ты справишься. 💪",
                 reply_markup=get_main_menu_keyboard()
             )
-            # TODO: Здесь можно добавить логику помощи
             return
             
         elif callback_data == 'menu_help':
@@ -187,7 +172,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             )
             return
     
-    # --- СТАРАЯ ЛОГИКА (остается без изменений) ---
+    # --- СТАРАЯ ЛОГИКА ЧЕК-ИНОВ ---
     if user_data.get('waiting_for') == 'evening_score' and callback_data.startswith('score_'):
         score = int(callback_data.split('_')[1])
         user_data['evening_score'] = score
@@ -283,11 +268,10 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
                 f"Настроение '{mood}' сохранено. Хорошей смены! 🍰\n\n"
                 f"💡 **Микро-практика на сегодня:**\n"
                 f"{random_practice}\n\n"
-                f"В конце смены нажми 'Завершить смену' в меню"
+                f"В конце смены нажми 'Завершить смену' в меню (/menu)"
             )
-            # Отправляем сообщение и показываем меню
+            # Отправляем ТОЛЬКО сообщение с практикой, НЕ показываем меню
             await query.edit_message_text(text=final_message)
-            await show_main_menu(update, context, "Главное меню:")
             
         except Exception as e:
             logger.error(f"Ошибка при сохранении утреннего чека: {e}")
@@ -311,12 +295,22 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             user_data['employee_id'] = employee_id
             user_data['employee_code'] = code
             
-            # Показываем меню с подсказкой начать смену
-            await show_main_menu(
-                update, 
-                context, 
-                f"Код '{code}' принят! Теперь можешь начать смену кнопкой ниже:"
+            # Сразу показываем выбор настроения, а НЕ меню
+            mood_keyboard = [
+                [
+                    InlineKeyboardButton("😫 Тяжело", callback_data="mood_bad"),
+                    InlineKeyboardButton("😐 Нейтрально", callback_data="mood_neutral")
+                ],
+                [
+                    InlineKeyboardButton("🙂 Хорошо", callback_data="mood_good"),
+                    InlineKeyboardButton("🤩 Отлично", callback_data="mood_excellent")
+                ]
+            ]
+            await update.message.reply_text(
+                f"Код '{code}' принят! Какое у тебя настроение перед сменой?",
+                reply_markup=InlineKeyboardMarkup(mood_keyboard)
             )
+            user_data['waiting_for'] = 'morning_mood'
         else:
             await update.message.reply_text(
                 "Не удалось обработать код. Попробуй ещё раз или обратись к управляющему."
