@@ -1,10 +1,20 @@
 import sys
+import warnings
+
+# ФИКС для Python 3.13+: подменяем отсутствующий модуль imghdr
 if sys.version_info >= (3, 13):
-    import PIL.Image as imghdr
-else:
-    import imghdr
-import os
-import logging
+    # Создаём фейковый модуль imghdr
+    import types
+    sys.modules['imghdr'] = types.ModuleType('imghdr')
+    # Добавляем минимально необходимую функцию
+    sys.modules['imghdr'].what = lambda file, h=None: None
+    # Отключаем предупреждения об отсутствии imghdr
+    warnings.filterwarnings('ignore', message='imghdr', category=DeprecationWarning)
+
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import Updater, CommandHandler, MessageHandler, Filters, CallbackQueryHandler, CallbackContext
+from supabase import create_client, Client
+from dotenv import load_dotenv
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Updater, CommandHandler, MessageHandler, Filters, CallbackQueryHandler, CallbackContext
 from supabase import create_client, Client
@@ -276,3 +286,4 @@ def main():
 if __name__ == '__main__':
 
     main()
+
