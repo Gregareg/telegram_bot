@@ -1,3 +1,8 @@
+import sys
+if sys.version_info >= (3, 13):
+    import PIL.Image as imghdr
+else:
+    import imghdr
 import os
 import logging
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
@@ -269,4 +274,5 @@ def main():
     updater.idle()
 
 if __name__ == '__main__':
+
     main()
