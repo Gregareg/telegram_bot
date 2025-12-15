@@ -16,9 +16,7 @@ from telegram.ext import (
     ApplicationBuilder, CommandHandler, MessageHandler, CallbackQueryHandler,
     ContextTypes, filters
 )
-from supabase import create_client
-# Тип Client импортируется отдельно
-from supabase.lib.client import Client
+from supabase import create_client, Client
 from dotenv import load_dotenv
 
 # ========== НАСТРОЙКА ЛОГИРОВАНИЯ ==========
@@ -265,4 +263,5 @@ def main() -> None:
 
 if __name__ == '__main__':
     main()
+
 
